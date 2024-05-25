@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package users;
+
+service UsersService {
+  rpc FindManyByIds (FindManyByIdsParams) returns (FindManyByIdsResponse);
+  rpc FindUserFollowers (FindUserFollowersParams) returns (FindUserFollowersResponse);
+}
+
+message FindManyByIdsParams {
+  repeated string ids = 1;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+}
+
+message FindManyByIdsResponse {
+  repeated User data = 1;
+}
+
+message FindUserFollowersParams {
+  string userId = 1;
+}
+
+message FindUserFollowersResponse {
+  repeated string data = 1;
+}

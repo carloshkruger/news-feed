@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package posts;
+
+service PostsService {
+  rpc FindManyByIds (FindManyByIdsParams) returns (FindManyByIdsResponse) {}
+}
+
+message FindManyByIdsParams {
+  repeated string ids = 1;
+}
+
+message Post {
+  string id = 1;
+  string content = 2;
+  string createdAt = 3;
+  string authorId = 4;
+}
+
+message FindManyByIdsResponse {
+  repeated Post data = 1;
+}
