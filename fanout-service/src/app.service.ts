@@ -1,11 +1,6 @@
-import {
-  DeleteMessageBatchCommand,
-  Message,
-  ReceiveMessageCommand,
-  SQSClient,
-} from '@aws-sdk/client-sqs';
+import { SQSClient } from '@aws-sdk/client-sqs';
+import { Consumer } from 'sqs-consumer';
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
-import { setTimeout as sleep } from 'timers/promises';
 import { UsersService as UsersRpcService } from './types/src/users';
 import { ClientGrpc } from '@nestjs/microservices';
 import { lastValueFrom } from 'rxjs';
@@ -14,19 +9,25 @@ import { CacheService } from './services/cache.service';
 @Injectable()
 export class AppService implements OnModuleInit {
   private usersRpcService: UsersRpcService;
-  private readonly sqsClient: SQSClient;
+  private readonly sqsConsumer: Consumer;
 
   constructor(
     @Inject('USERS_PACKAGE') private usersClient: ClientGrpc,
     private cacheService: CacheService,
   ) {
-    this.sqsClient = new SQSClient({
-      region: process.env.AWS_REGION,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    this.sqsConsumer = Consumer.create({
+      queueUrl: process.env.QUEUE_NAME,
+      handleMessage: async (message) => {
+        await this.generateFeed(JSON.parse(message.Body).Message);
       },
-      endpoint: process.env.SQS_ENDPOINT,
+      sqs: new SQSClient({
+        region: process.env.AWS_REGION,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        },
+        endpoint: process.env.SQS_ENDPOINT,
+      }),
     });
   }
 
@@ -34,52 +35,7 @@ export class AppService implements OnModuleInit {
     this.usersRpcService =
       this.usersClient.getService<UsersRpcService>('UsersService');
 
-    this.startProcessingQueue();
-  }
-
-  private async startProcessingQueue() {
-    while (true) {
-      const { Messages } = await this.sqsClient.send(
-        new ReceiveMessageCommand({
-          QueueUrl: process.env.QUEUE_NAME,
-          MaxNumberOfMessages: 10,
-          WaitTimeSeconds: 10,
-        }),
-      );
-
-      if (!Messages || !Messages.length) {
-        await sleep(5000);
-        continue;
-      }
-
-      const promisesResults = await Promise.allSettled(
-        Messages.map((message) =>
-          this.generateFeed(JSON.parse(message.Body).Message),
-        ),
-      );
-
-      // If a message is successfully processed, it can be removed from the queue
-      const messagesToDelete: Message[] = [];
-      for (let i = 0; i < promisesResults.length; i++) {
-        const result = promisesResults[i];
-
-        if (result.status === 'fulfilled') {
-          messagesToDelete.push(Messages[i]);
-        }
-      }
-
-      if (messagesToDelete.length) {
-        await this.sqsClient.send(
-          new DeleteMessageBatchCommand({
-            QueueUrl: process.env.QUEUE_NAME,
-            Entries: messagesToDelete.map((message) => ({
-              Id: message.MessageId,
-              ReceiptHandle: message.ReceiptHandle,
-            })),
-          }),
-        );
-      }
-    }
+    this.sqsConsumer.start();
   }
 
   private async generateFeed(message: string): Promise<void> {
